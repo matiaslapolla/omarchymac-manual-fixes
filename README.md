@@ -26,6 +26,7 @@ be sent there.
 | [`omarchy-mac-fix-plymouth.sh`](omarchy-mac-fix-plymouth.sh) | `omarchy-plymouth-set --refresh-default` refusing to run as root during setup | Merged upstream |
 | [`omarchy-mac-fixes.sh`](omarchy-mac-fixes.sh) | Widevine, Vulkan, Apple Silicon detection, Wi-Fi resume, Bluetooth resume | Partly merged upstream |
 | [`omarchy-mac-fix-grep-hook.sh`](omarchy-mac-fix-grep-hook.sh) | Keeps the Apple Silicon detection fix applied across package upgrades | Still needed |
+| [`omarchy-mac-fix-shellcolor-hook.sh`](omarchy-mac-fix-shellcolor-hook.sh) | Black shell (bar, launcher, lock, themes) under Qt 6.12, kept applied across upgrades | Still needed |
 | [`omarchy-mac-fix-als-keyboard-unit.sh`](omarchy-mac-fix-als-keyboard-unit.sh) | Keyboard backlight from the ambient light sensor, whose unit file the package never installs | Still needed |
 | [`setup-swap.sh`](setup-swap.sh) | zram + btrfs swapfile tuned for 16K pages | Personal preference |
 
@@ -144,6 +145,31 @@ because it only walked `*.sh` and `omarchy-*`. That one is cosmetic on a
 notch-less M1 Air (the derived notch height is 0 on a 16:10 panel) but matters
 on M2 Airs and the Pros.
 
+### `omarchy-mac-fix-shellcolor-hook.sh`
+
+**Still needed** as of `omarchy` 4.0.4-2. Run as `sudo bash omarchy-mac-fix-shellcolor-hook.sh`.
+
+ALARM shipped Qt 6.12 (`qt6-declarative 6.12.0`, with `quickshell 0.3.2`)
+ahead of Arch x86. Qt 6.12's QtQuick exports a builtin `Color` that shadows
+omarchy-shell's `qs.Commons.Color` singleton, even though `qs.Commons` is
+imported after `QtQuick`. Every theme lookup (`Color.bar.text`,
+`Color.accent`, `Color.shellValues[...]`) comes back undefined, so the bar,
+launcher, lock screen, polkit dialog and theme picker all render black. Nothing
+crashes and no core is dumped; the only trace is the shell log:
+
+```console
+$ qs log --pid $(pgrep -xn quickshell) | grep -c 'of undefined'
+378
+```
+
+A minimal quickshell config that imports `qs.Commons` and logs `Color`
+prints `QQuickColor(...)` rather than the singleton. The fix renames the
+singleton to `ShellColor` in `Commons/qmldir` and every `Color.` reference
+under `shell/`. As with the grep fix, a pacman `PostTransaction` hook on the
+`omarchy` package re-applies it after every upgrade. It turns itself off once
+upstream stops declaring `singleton Color` in the qmldir. Restart the shell
+after an upgrade that re-applied it: `omarchy-restart-shell`.
+
 ### `omarchy-mac-fix-als-keyboard-unit.sh`
 
 **Still needed** as of `omarchy` / `omarchy-settings` 4.0.2-2. Run as your user.
@@ -198,6 +224,7 @@ sudo omarchy-mac-setup --resume
 bash omarchy-mac-fix-plymouth.sh
 sudo bash omarchy-mac-fixes.sh
 sudo bash omarchy-mac-fix-grep-hook.sh
+sudo bash omarchy-mac-fix-shellcolor-hook.sh  # once Qt is 6.12 or newer
 bash omarchy-mac-fix-als-keyboard-unit.sh   # as your user
 sudo bash setup-swap.sh
 ```
@@ -225,6 +252,8 @@ The Bluetooth recovery has no packaged equivalent and should be left alone.
 - The `grep -a` detection fix, which repairs several Apple Silicon features that
   currently no-op on every Mac.
 - The Bluetooth rebind recovery for #302 / #338.
+- The `Color` singleton rename, which every omarchy install will need once its
+  distribution moves to Qt 6.12.
 - The missing `omarchy-brightness-keyboard-auto.service` in `omarchy-settings`,
   which is a one-line packaging fix. Migration `1788139121` writing a symlink to
   a path it never checked exists is worth reporting alongside it: had it failed
